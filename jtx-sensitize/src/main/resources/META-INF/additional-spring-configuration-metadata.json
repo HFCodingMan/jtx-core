@@ -1,0 +1,22 @@
+{
+  "properties": [
+    {
+      "name": "jtx.desensitize.enabled",
+      "type": "java.lang.Boolean",
+      "description": "是否启用脱敏功能",
+      "defaultValue": true
+    },
+    {
+      "name": "jtx.desensitize.default-mask",
+      "type": "java.lang.Character",
+      "description": "默认脱敏字符",
+      "defaultValue": "*"
+    },
+    {
+      "name": "jtx.desensitize.global-enabled",
+      "type": "java.lang.Boolean",
+      "description": "全局脱敏开关",
+      "defaultValue": true
+    }
+  ]
+}

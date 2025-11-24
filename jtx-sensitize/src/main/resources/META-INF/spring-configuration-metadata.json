@@ -1,0 +1,50 @@
+{
+  "properties": [
+    {
+      "name": "jtx.desensitize.enabled",
+      "type": "java.lang.Boolean",
+      "description": "是否启用脱敏功能，当设置为false时，整个脱敏功能将被禁用。",
+      "defaultValue": true
+    },
+    {
+      "name": "jtx.desensitize.default-mask",
+      "type": "java.lang.String",
+      "description": "默认脱敏字符，用于替换敏感信息的字符。",
+      "defaultValue": "*"
+    },
+    {
+      "name": "jtx.desensitize.global-enabled",
+      "type": "java.lang.Boolean",
+      "description": "全局脱敏开关，当设置为false时，所有@Desensitize注解将失效。",
+      "defaultValue": true
+    }
+  ],
+  "hints": [
+    {
+      "name": "jtx.desensitize.enabled",
+      "values": [
+        {
+          "value": true,
+          "description": "启用数据脱敏功能"
+        },
+        {
+          "value": false,
+          "description": "禁用数据脱敏功能"
+        }
+      ]
+    },
+    {
+      "name": "jtx.desensitize.global-enabled",
+      "values": [
+        {
+          "value": true,
+          "description": "启用全局脱敏"
+        },
+        {
+          "value": false,
+          "description": "禁用全局脱敏"
+        }
+      ]
+    }
+  ]
+}
