@@ -49,6 +49,11 @@ public enum DesensitizeType {
     CHINESE_NAME,
 
     /**
+     * JSON字段脱敏 - 支持对JSON字符串中的不同字段应用不同的脱敏类型
+     */
+    JSON_FIELD,
+
+    /**
      * 自定义脱敏
      */
     CUSTOM

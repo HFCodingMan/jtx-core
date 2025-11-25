@@ -67,6 +67,24 @@ public @interface Desensitize {
     char maskChar() default '*';
 
     /**
+     * 字段级脱敏配置
+     * 当需要对JSON字符串中的不同字段应用不同的脱敏类型时使用
+     * 配置格式：字段路径:脱敏类型[:参数]
+     * 多个配置用逗号分隔
+     *
+     * 示例：
+     * "user.phone:PHONE,user.idCard:ID_CARD,user.email:EMAIL"
+     * "items[*].price:PHONE,items[*].secret:PASSWORD:startKeep:0,endKeep:0,maskChar:#"
+     * "contactInfo.phone:PHONE:maskChar:#,contactInfo.email:EMAIL"
+     *
+     * 支持的脱敏类型：USERNAME, ID_CARD, PHONE, EMAIL, BANK_CARD,
+     *                   CHINESE_NAME, PASSWORD, ADDRESS, CUSTOM
+     *
+     * @return 字段级脱敏配置
+     */
+    String fieldConfigs() default "";
+
+    /**
      * 是否启用脱敏
      * 可用于动态控制脱敏开关
      *

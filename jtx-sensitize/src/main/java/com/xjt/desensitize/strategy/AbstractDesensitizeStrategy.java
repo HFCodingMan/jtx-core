@@ -34,7 +34,7 @@ public abstract class AbstractDesensitizeStrategy implements DesensitizeStrategy
         // 如果字符串长度小于等于要保留的字符总数，直接返回原字符串或全部脱敏
         if (length <= startKeep + endKeep) {
             if (length <= 2) {
-                return StringUtils.isEmpty(origin) ? origin : repeatMask(maskChar, length);
+                return !StringUtils.hasText(origin) ? origin : repeatMask(maskChar, length);
             }
             // 保留首尾，中间脱敏
             return origin.charAt(0) + repeatMask(maskChar, length - 2) + origin.charAt(length - 1);

@@ -36,6 +36,7 @@ public class DesensitizeStrategyServiceImpl implements DesensitizeStrategyServic
                                          ChineseNameDesensitizeStrategy chineseNameStrategy,
                                          PasswordDesensitizeStrategy passwordStrategy,
                                          AddressDesensitizeStrategy addressStrategy,
+                                         JsonFieldDesensitizeStrategy jsonFieldDesensitizeStrategy,
                                          CustomDesensitizeStrategy customStrategy) {
         this.customStrategy = customStrategy;
 
@@ -46,6 +47,7 @@ public class DesensitizeStrategyServiceImpl implements DesensitizeStrategyServic
         strategyMap.put(DesensitizeType.BANK_CARD, bankCardStrategy);
         strategyMap.put(DesensitizeType.CHINESE_NAME, chineseNameStrategy);
         strategyMap.put(DesensitizeType.PASSWORD, passwordStrategy);
+        strategyMap.put(DesensitizeType.JSON_FIELD, jsonFieldDesensitizeStrategy);
         strategyMap.put(DesensitizeType.ADDRESS, addressStrategy);
     }
 
@@ -138,5 +140,16 @@ public class DesensitizeStrategyServiceImpl implements DesensitizeStrategyServic
         // 简单的自定义格式处理
         // 这里可以根据需要扩展更复杂的格式解析逻辑
         return customStrategy.desensitize(origin, startKeep, endKeep, maskChar);
+    }
+
+    /**
+     * 获取指定类型的脱敏策略
+     * 用于序列化器中的特殊处理
+     *
+     * @param type 脱敏类型
+     * @return 脱敏策略，如果没有找到则返回null
+     */
+    public DesensitizeStrategy getStrategy(DesensitizeType type) {
+        return strategyMap.get(type);
     }
 }

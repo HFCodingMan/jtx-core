@@ -102,6 +102,16 @@ public class DesensitizeAutoConfiguration {
     }
 
     /**
+     * 配置JSON字段脱敏策略
+     * 现在使用独立的JsonFieldDesensitizer实现，不依赖外部策略映射
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public JsonFieldDesensitizeStrategy jsonFieldDesensitizeStrategy() {
+        return new JsonFieldDesensitizeStrategy();
+    }
+
+    /**
      * 配置脱敏策略服务
      */
     @Bean
@@ -115,6 +125,7 @@ public class DesensitizeAutoConfiguration {
             ChineseNameDesensitizeStrategy chineseNameStrategy,
             PasswordDesensitizeStrategy passwordStrategy,
             AddressDesensitizeStrategy addressStrategy,
+            JsonFieldDesensitizeStrategy jsonFieldDesensitizeStrategy,
             CustomDesensitizeStrategy customStrategy) {
 
         return new DesensitizeStrategyServiceImpl(
@@ -126,6 +137,7 @@ public class DesensitizeAutoConfiguration {
                 chineseNameStrategy,
                 passwordStrategy,
                 addressStrategy,
+                jsonFieldDesensitizeStrategy,
                 customStrategy
         );
     }

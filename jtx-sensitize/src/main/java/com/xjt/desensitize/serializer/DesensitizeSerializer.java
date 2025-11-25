@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.ser.std.StdSerializer;
 import com.xjt.desensitize.annotation.Desensitize;
 import com.xjt.desensitize.enumservice.DesensitizeStrategyService;
 import com.xjt.desensitize.enumtype.DesensitizeType;
+import com.xjt.desensitize.strategy.impl.JsonFieldDesensitizeStrategy;
 import com.xjt.desensitize.util.SpringContextHolder;
 
 import java.io.IOException;
@@ -57,6 +58,11 @@ public class DesensitizeSerializer extends StdSerializer<Object> implements Cont
      */
     private boolean enabled;
 
+    /**
+     * 字段级脱敏配置（用于JSON_FIELD类型）
+     */
+    private String fieldConfigs;
+
     public DesensitizeSerializer() {
         super(Object.class);
     }
@@ -76,6 +82,20 @@ public class DesensitizeSerializer extends StdSerializer<Object> implements Cont
         this.endKeep = endKeep;
         this.maskChar = maskChar;
         this.enabled = enabled;
+        this.fieldConfigs = "";
+    }
+
+    public DesensitizeSerializer(DesensitizeStrategyService strategyService, DesensitizeType type,
+                                 String customFormat, int startKeep, int endKeep, char maskChar, boolean enabled, String fieldConfigs) {
+        super(Object.class);
+        this.strategyService = strategyService;
+        this.type = type;
+        this.customFormat = customFormat;
+        this.startKeep = startKeep;
+        this.endKeep = endKeep;
+        this.maskChar = maskChar;
+        this.enabled = enabled;
+        this.fieldConfigs = fieldConfigs != null ? fieldConfigs : "";
     }
 
     @Override
@@ -129,7 +149,8 @@ public class DesensitizeSerializer extends StdSerializer<Object> implements Cont
                     annotation.startKeep(),
                     annotation.endKeep(),
                     annotation.maskChar(),
-                    annotation.enabled()
+                    annotation.enabled(),
+                    annotation.fieldConfigs()
             );
 
         } catch (Exception e) {
@@ -167,9 +188,28 @@ public class DesensitizeSerializer extends StdSerializer<Object> implements Cont
 
             try {
                 String originalValue = value.toString();
-                String desensitizedValue = strategyService.desensitize(
-                        originalValue, type, customFormat, startKeep, endKeep, maskChar
-                );
+                String desensitizedValue;
+
+                // 针对JSON字段脱敏类型进行特殊处理
+                if (type == DesensitizeType.JSON_FIELD) {
+                    try {
+                        JsonFieldDesensitizeStrategy jsonFieldStrategy =
+                            (JsonFieldDesensitizeStrategy) ((com.xjt.desensitize.enumservice.impl.DesensitizeStrategyServiceImpl) strategyService).getStrategy(type);
+                        if (jsonFieldStrategy != null) {
+                            desensitizedValue = jsonFieldStrategy.desensitize(originalValue, fieldConfigs, maskChar);
+                        } else {
+                            desensitizedValue = strategyService.desensitize(
+                                originalValue, type, customFormat, startKeep, endKeep, maskChar);
+                        }
+                    } catch (ClassCastException e) {
+                        System.err.println("JSON字段脱敏策略类型转换失败，使用通用脱敏处理");
+                        desensitizedValue = strategyService.desensitize(
+                            originalValue, type, customFormat, startKeep, endKeep, maskChar);
+                    }
+                } else {
+                    desensitizedValue = strategyService.desensitize(
+                        originalValue, type, customFormat, startKeep, endKeep, maskChar);
+                }
 
                 // 确保脱敏后的值不为null
                 String finalValue = desensitizedValue != null ? desensitizedValue : originalValue;
@@ -207,11 +247,12 @@ public class DesensitizeSerializer extends StdSerializer<Object> implements Cont
         if (enabled != that.enabled) return false;
         if (!Objects.equals(type, that.type)) return false;
         if (!Objects.equals(customFormat, that.customFormat)) return false;
+        if (!Objects.equals(fieldConfigs, that.fieldConfigs)) return false;
         return Objects.equals(strategyService, that.strategyService);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(strategyService, type, customFormat, startKeep, endKeep, maskChar, enabled);
+        return Objects.hash(strategyService, type, customFormat, startKeep, endKeep, maskChar, enabled, fieldConfigs);
     }
 }
