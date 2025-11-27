@@ -18,6 +18,13 @@ import java.util.Map;
  * 支持对JSON字符串中的特定字段应用不同类型的脱敏规则
  * 完全自定义实现，不依赖外部策略映射
  *
+ * 配置格式：字段路径:脱敏类型[:参数]
+ * 多个字段配置用分号(;)分隔，参数用逗号(,)分隔
+ *
+ * 示例配置：
+ * "user.phone:PHONE;user.idCard:ID_CARD"
+ * "items[*].phone:PHONE:startKeep:2,endKeep:3;items[*].idCard:ID_CARD:startKeep:4,endKeep:2"
+ *
  * @author JTX
  * @since 1.0.0
  */
@@ -73,7 +80,8 @@ public class JsonFieldDesensitizer {
     /**
      * 批量添加字段配置
      *
-     * @param configs 字段配置，格式为 "fieldPath:type:params"
+     * @param configs 字段配置列表，每项格式为 "fieldPath:type[:params]"
+     *                参数格式为 "startKeep:2,endKeep:3,maskChar:#"
      */
     public void addFieldConfigs(List<String> configs) {
         if (configs != null) {
@@ -85,29 +93,30 @@ public class JsonFieldDesensitizer {
 
     /**
      * 解析字段配置字符串
-     * 格式：fieldPath:type 或 fieldPath:type:startKeep:2,endKeep:4
+     * 格式：fieldPath:type[:params]
+     * 其中params格式为：startKeep:2,endKeep:3,maskChar:#
      */
     private void parseFieldConfig(String config) {
         if (!StringUtils.hasText(config)) {
             return;
         }
 
-        String[] parts = config.split(":");
-        if (parts.length >= 2) {
-            String fieldPath = parts[0].trim();
+        // 先分割前两部分（fieldPath和type），最多分割3部分
+        String[] firstSplit = config.split(":", 3);
+        if (firstSplit.length >= 2) {
+            String fieldPath = firstSplit[0].trim();
             try {
-                DesensitizeType type = DesensitizeType.valueOf(parts[1].trim().toUpperCase());
+                DesensitizeType type = DesensitizeType.valueOf(firstSplit[1].trim().toUpperCase());
 
-                if (parts.length >= 3) {
-                    // 有参数
-                    String params = String.join(":", java.util.Arrays.copyOfRange(parts, 2, parts.length));
-                    addFieldConfig(fieldPath, type, params);
+                if (firstSplit.length == 3) {
+                    // 有参数，直接使用第三部分
+                    addFieldConfig(fieldPath, type, firstSplit[2]);
                 } else {
                     // 无参数
                     addFieldConfig(fieldPath, type);
                 }
             } catch (IllegalArgumentException e) {
-                System.err.println("无效的脱敏类型: " + parts[1] + ", 跳过配置: " + config);
+                System.err.println("无效的脱敏类型: " + firstSplit[1] + ", 跳过配置: " + config);
             }
         }
     }
@@ -145,27 +154,37 @@ public class JsonFieldDesensitizer {
      * 递归处理对象节点的脱敏
      */
     private void desensitizeObject(ObjectNode objectNode, String currentPath) {
-        Iterator<Map.Entry<String, JsonNode>> fields = objectNode.fields();
-        while (fields.hasNext()) {
-            Map.Entry<String, JsonNode> field = fields.next();
-            String fieldName = field.getKey();
-            JsonNode fieldValue = field.getValue();
-            String fullPath = currentPath.isEmpty() ? fieldName : currentPath + "." + fieldName;
+        if (objectNode == null) {
+            return;
+        }
 
-            if (fieldValue.isObject()) {
-                // 递归处理嵌套对象
-                desensitizeObject((ObjectNode) fieldValue, fullPath);
-            } else if (fieldValue.isArray()) {
-                // 处理数组
-                desensitizeArray((ArrayNode) fieldValue, fullPath);
-            } else if (fieldValue.isValueNode()) {
-                // 处理值节点（字符串、数字等）
-                DesensitizeType type = findMatchingType(fullPath);
-                if (type != null) {
-                    String desensitizedValue = desensitizeValue(fieldValue.asText(), type, fullPath);
-                    objectNode.put(fieldName, desensitizedValue);
+        try {
+            Iterator<Map.Entry<String, JsonNode>> fields = objectNode.fields();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> field = fields.next();
+                String fieldName = field.getKey();
+                JsonNode fieldValue = field.getValue();
+                String fullPath = currentPath.isEmpty() ? fieldName : currentPath + "." + fieldName;
+
+                if (fieldValue != null) {
+                    if (fieldValue.isObject()) {
+                        // 递归处理嵌套对象
+                        desensitizeObject((ObjectNode) fieldValue, fullPath);
+                    } else if (fieldValue.isArray()) {
+                        // 处理数组
+                        desensitizeArray((ArrayNode) fieldValue, fullPath);
+                    } else if (fieldValue.isValueNode()) {
+                        // 处理值节点（字符串、数字等）
+                        DesensitizeType type = findMatchingType(fullPath);
+                        if (type != null) {
+                            String desensitizedValue = desensitizeValue(fieldValue.asText(), type, fullPath);
+                            objectNode.put(fieldName, desensitizedValue);
+                        }
+                    }
                 }
             }
+        } catch (Exception e) {
+            System.err.println("处理对象节点时发生错误: " + e.getMessage());
         }
     }
 
@@ -173,21 +192,34 @@ public class JsonFieldDesensitizer {
      * 递归处理数组节点的脱敏
      */
     private void desensitizeArray(ArrayNode arrayNode, String currentPath) {
-        for (int i = 0; i < arrayNode.size(); i++) {
-            JsonNode element = arrayNode.get(i);
-            String elementPath = currentPath + "[" + i + "]";
+        if (arrayNode == null || arrayNode.size() == 0) {
+            return;
+        }
 
-            if (element.isObject()) {
-                desensitizeObject((ObjectNode) element, elementPath);
-            } else if (element.isArray()) {
-                desensitizeArray((ArrayNode) element, elementPath);
-            } else if (element.isValueNode()) {
-                // 处理数组中的值节点
-                DesensitizeType type = findMatchingType(currentPath + "[*]");
-                if (type != null) {
-                    String desensitizedValue = desensitizeValue(element.asText(), type, elementPath);
-                    arrayNode.set(i, objectMapper.getNodeFactory().textNode(desensitizedValue));
+        for (int i = 0; i < arrayNode.size(); i++) {
+            try {
+                JsonNode element = arrayNode.get(i);
+                if (element == null) {
+                    continue; // 跳过null元素
                 }
+
+                String elementPath = currentPath + "[" + i + "]";
+
+                if (element.isObject()) {
+                    desensitizeObject((ObjectNode) element, elementPath);
+                } else if (element.isArray()) {
+                    desensitizeArray((ArrayNode) element, elementPath);
+                } else if (element.isValueNode()) {
+                    // 处理数组中的值节点
+                    DesensitizeType type = findMatchingType(currentPath + "[*]");
+                    if (type != null) {
+                        String desensitizedValue = desensitizeValue(element.asText(), type, elementPath);
+                        arrayNode.set(i, objectMapper.getNodeFactory().textNode(desensitizedValue));
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("处理数组元素时发生错误: " + e.getMessage());
+                continue;
             }
         }
     }
@@ -196,23 +228,18 @@ public class JsonFieldDesensitizer {
      * 查找匹配的字段脱敏类型
      */
     private DesensitizeType findMatchingType(String fullPath) {
-        // 精确匹配
-        DesensitizeType exactMatch = fieldConfigs.get(fullPath);
+        // 将路径标准化，将数组索引替换为通配符
+        String normalizedPath = normalizeFieldPath(fullPath);
+
+        // 精确匹配（使用标准化路径）
+        DesensitizeType exactMatch = fieldConfigs.get(normalizedPath);
         if (exactMatch != null) {
             return exactMatch;
         }
 
-        // 数组通配符匹配
-        for (Map.Entry<String, DesensitizeType> entry : fieldConfigs.entrySet()) {
-            String pattern = entry.getKey().replace("[*]", "[" + extractIndex(fullPath) + "]");
-            if (matchesPath(fullPath, pattern)) {
-                return entry.getValue();
-            }
-        }
-
         // 模式匹配
         for (Map.Entry<String, DesensitizeType> entry : fieldConfigs.entrySet()) {
-            if (matchesPath(fullPath, entry.getKey())) {
+            if (matchesPath(normalizedPath, entry.getKey())) {
                 return entry.getValue();
             }
         }
@@ -221,29 +248,36 @@ public class JsonFieldDesensitizer {
     }
 
     /**
-     * 从路径中提取数组索引
-     */
-    private String extractIndex(String path) {
-        int bracketStart = path.lastIndexOf('[');
-        int bracketEnd = path.lastIndexOf(']');
-        if (bracketStart != -1 && bracketEnd != -1 && bracketEnd > bracketStart) {
-            return path.substring(bracketStart + 1, bracketEnd);
-        }
-        return "*";
-    }
-
-    /**
      * 路径匹配
      */
     private boolean matchesPath(String fullPath, String pattern) {
+        // 精确匹配
         if (pattern.equals(fullPath)) {
             return true;
         }
 
         // 通配符匹配
         if (pattern.contains("[*]")) {
-            String wildcardPattern = pattern.replace("[*]", "[*]");
-            return fullPath.startsWith(wildcardPattern.replace("[*]", ""));
+            // 转换为正则表达式
+            String regex = pattern.replace(".", "\\.")
+                               .replace("[*]", "\\[\\d+\\]")
+                               .replace("(", "\\(")
+                               .replace(")", "\\)")
+                               .replace("[", "\\[")
+                               .replace("]", "\\]")
+                               .replace("?", "\\?")
+                               .replace("+", "\\+")
+                               .replace("*", "\\*");
+
+            // 确保正则表达式完整匹配
+            regex = "^" + regex + "$";
+
+            return fullPath.matches(regex);
+        }
+
+        // 前缀匹配（用于嵌套对象）
+        if (fullPath.startsWith(pattern + ".")) {
+            return true;
         }
 
         return false;
@@ -253,7 +287,8 @@ public class JsonFieldDesensitizer {
      * 对单个值进行脱敏处理 - 完全自定义实现
      */
     private String desensitizeValue(String value, DesensitizeType type, String fieldPath) {
-        if (!StringUtils.hasText(value)) {
+        // 加强null和空值检查
+        if (value == null || value.trim().isEmpty()) {
             return value;
         }
 
@@ -263,21 +298,21 @@ public class JsonFieldDesensitizer {
         // 根据脱敏类型执行相应的脱敏逻辑
         switch (type) {
             case USERNAME:
-                return desensitizeUsername(value, params.maskChar);
+                return desensitizeUsername(value, params.startKeep, params.endKeep, params.maskChar);
             case ID_CARD:
-                return desensitizeIdCard(value, params.maskChar);
+                return desensitizeIdCard(value, params.startKeep, params.endKeep, params.maskChar);
             case PHONE:
-                return desensitizePhone(value, params.maskChar);
+                return desensitizePhone(value, params.startKeep, params.endKeep, params.maskChar);
             case EMAIL:
-                return desensitizeEmail(value, params.maskChar);
+                return desensitizeEmail(value, params.startKeep, params.endKeep, params.maskChar);
             case BANK_CARD:
-                return desensitizeBankCard(value, params.maskChar);
+                return desensitizeBankCard(value, params.startKeep, params.endKeep, params.maskChar);
             case CHINESE_NAME:
-                return desensitizeChineseName(value, params.maskChar);
+                return desensitizeChineseName(value, params.startKeep, params.endKeep, params.maskChar);
             case PASSWORD:
-                return desensitizePassword(value, params.maskChar);
+                return desensitizePassword(value, params.startKeep, params.endKeep, params.maskChar);
             case ADDRESS:
-                return desensitizeAddress(value, params.maskChar);
+                return desensitizeAddress(value, params.startKeep, params.endKeep, params.maskChar);
             case CUSTOM:
                 return desensitizeCustom(value, params.startKeep, params.endKeep, params.maskChar);
             default:
@@ -288,7 +323,12 @@ public class JsonFieldDesensitizer {
     /**
      * 用户名脱敏 - 隐藏首字符
      */
-    private String desensitizeUsername(String value, char maskChar) {
+    private String desensitizeUsername(String value, int startKeep, int endKeep, char maskChar) {
+        if (startKeep > 0 || endKeep > 0) {
+            // 如果有参数，使用通用脱敏方法
+            return desensitizeCustom(value, startKeep, endKeep, maskChar);
+        }
+        // 默认行为：隐藏首字符
         if (value.length() <= 1) {
             return repeatMask(maskChar, value.length());
         }
@@ -298,7 +338,12 @@ public class JsonFieldDesensitizer {
     /**
      * 身份证号脱敏 - 保留前6后4
      */
-    private String desensitizeIdCard(String value, char maskChar) {
+    private String desensitizeIdCard(String value, int startKeep, int endKeep, char maskChar) {
+        if (startKeep > 0 || endKeep > 0) {
+            // 如果有参数，使用通用脱敏方法
+            return desensitizeCustom(value, startKeep, endKeep, maskChar);
+        }
+        // 默认行为：保留前6后4
         if (value.length() <= 10) {
             return repeatMask(maskChar, value.length());
         }
@@ -308,7 +353,12 @@ public class JsonFieldDesensitizer {
     /**
      * 手机号脱敏 - 保留前3后4
      */
-    private String desensitizePhone(String value, char maskChar) {
+    private String desensitizePhone(String value, int startKeep, int endKeep, char maskChar) {
+        if (startKeep > 0 || endKeep > 0) {
+            // 如果有参数，使用通用脱敏方法
+            return desensitizeCustom(value, startKeep, endKeep, maskChar);
+        }
+        // 默认行为：保留前3后4
         if (value.length() <= 7) {
             return repeatMask(maskChar, value.length());
         }
@@ -318,7 +368,12 @@ public class JsonFieldDesensitizer {
     /**
      * 邮箱脱敏 - 隐藏@前部分的部分字符
      */
-    private String desensitizeEmail(String value, char maskChar) {
+    private String desensitizeEmail(String value, int startKeep, int endKeep, char maskChar) {
+        if (startKeep > 0 || endKeep > 0) {
+            // 如果有参数，使用通用脱敏方法
+            return desensitizeCustom(value, startKeep, endKeep, maskChar);
+        }
+        // 默认行为：隐藏@前部分的部分字符
         int atIndex = value.indexOf('@');
         if (atIndex <= 1) {
             return repeatMask(maskChar, atIndex) + value.substring(atIndex);
@@ -329,7 +384,12 @@ public class JsonFieldDesensitizer {
     /**
      * 银行卡号脱敏 - 保留后4
      */
-    private String desensitizeBankCard(String value, char maskChar) {
+    private String desensitizeBankCard(String value, int startKeep, int endKeep, char maskChar) {
+        if (startKeep > 0 || endKeep > 0) {
+            // 如果有参数，使用通用脱敏方法
+            return desensitizeCustom(value, startKeep, endKeep, maskChar);
+        }
+        // 默认行为：保留后4
         if (value.length() <= 4) {
             return repeatMask(maskChar, value.length());
         }
@@ -339,7 +399,12 @@ public class JsonFieldDesensitizer {
     /**
      * 中文姓名脱敏 - 隐藏首字符
      */
-    private String desensitizeChineseName(String value, char maskChar) {
+    private String desensitizeChineseName(String value, int startKeep, int endKeep, char maskChar) {
+        if (startKeep > 0 || endKeep > 0) {
+            // 如果有参数，使用通用脱敏方法
+            return desensitizeCustom(value, startKeep, endKeep, maskChar);
+        }
+        // 默认行为：隐藏首字符
         if (value.length() <= 1) {
             return repeatMask(maskChar, value.length());
         }
@@ -349,14 +414,24 @@ public class JsonFieldDesensitizer {
     /**
      * 密码脱敏 - 全部隐藏
      */
-    private String desensitizePassword(String value, char maskChar) {
+    private String desensitizePassword(String value, int startKeep, int endKeep, char maskChar) {
+        if (startKeep > 0 || endKeep > 0) {
+            // 如果有参数，使用通用脱敏方法
+            return desensitizeCustom(value, startKeep, endKeep, maskChar);
+        }
+        // 默认行为：全部隐藏
         return repeatMask(maskChar, value.length());
     }
 
     /**
      * 地址脱敏 - 保留前6后4
      */
-    private String desensitizeAddress(String value, char maskChar) {
+    private String desensitizeAddress(String value, int startKeep, int endKeep, char maskChar) {
+        if (startKeep > 0 || endKeep > 0) {
+            // 如果有参数，使用通用脱敏方法
+            return desensitizeCustom(value, startKeep, endKeep, maskChar);
+        }
+        // 默认行为：保留前6后4
         if (value.length() <= 10) {
             return repeatMask(maskChar, value.length());
         }
@@ -373,8 +448,15 @@ public class JsonFieldDesensitizer {
 
         int length = value.length();
 
-        // 如果字符串长度小于等于要保留的字符总数，直接返回原字符串或全部脱敏
+        // 如果字符串长度小于等于要保留的字符总数
         if (length <= startKeep + endKeep) {
+            // 如果要保留的总字符数等于或超过字符串长度
+            if (startKeep >= length) {
+                return repeatMask(maskChar, length);
+            }
+            if (endKeep >= length) {
+                return repeatMask(maskChar, length);
+            }
             if (length <= 2) {
                 return repeatMask(maskChar, length);
             }
@@ -390,7 +472,7 @@ public class JsonFieldDesensitizer {
 
         // 添加开始保留部分
         if (startKeep > 0) {
-            result.append(value.substring(0, startKeep));
+            result.append(safeSubstring(value, 0, startKeep));
         }
 
         // 添加脱敏部分
@@ -398,10 +480,24 @@ public class JsonFieldDesensitizer {
 
         // 添加结尾保留部分
         if (endKeep > 0) {
-            result.append(value.substring(length - endKeep));
+            result.append(safeSubstring(value, length - endKeep, length));
         }
 
         return result.toString();
+    }
+
+    /**
+     * 创建安全的substring方法，防止边界异常
+     */
+    private String safeSubstring(String str, int start, int end) {
+        if (str == null) {
+            return null;
+        }
+        int length = str.length();
+        if (start < 0) start = 0;
+        if (end > length) end = length;
+        if (start >= end) return "";
+        return str.substring(start, end);
     }
 
     /**
@@ -425,33 +521,59 @@ public class JsonFieldDesensitizer {
         FieldDesensitizeParams params = new FieldDesensitizeParams();
         params.maskChar = this.defaultMaskChar;
 
-        String paramStr = fieldParams.get(fieldPath.replaceFirst("\\[\\d+\\]$", "[*]"));
+        // 将字段路径中的所有数组索引替换为通配符，以便匹配配置
+        String normalizedPath = normalizeFieldPath(fieldPath);
+
+        // 尝试精确匹配
+        String paramStr = fieldParams.get(normalizedPath);
+
+        // 如果精确匹配失败，尝试查找匹配的模式
+        if (!StringUtils.hasText(paramStr)) {
+            for (Map.Entry<String, String> entry : fieldParams.entrySet()) {
+                if (matchesPath(normalizedPath, entry.getKey())) {
+                    paramStr = entry.getValue();
+                    break;
+                }
+            }
+        }
+
         if (StringUtils.hasText(paramStr)) {
-            String[] paramPairs = paramStr.split("@");
+            String[] paramPairs = paramStr.split(",");
             for (String pair : paramPairs) {
                 String[] keyValue = pair.split(":");
                 if (keyValue.length == 2) {
                     String key = keyValue[0].trim();
                     String value = keyValue[1].trim();
-
                     switch (key) {
                         case "startKeep":
                             try {
-                                params.startKeep = Integer.parseInt(value);
+                                int parsedValue = Integer.parseInt(value);
+                                if (parsedValue >= 0 && parsedValue <= 1000) { // 合理范围限制
+                                    params.startKeep = parsedValue;
+                                } else {
+                                    System.err.println("startKeep参数超出有效范围[0-1000]: " + value);
+                                }
                             } catch (NumberFormatException e) {
-                                // 忽略无效数字
+                                System.err.println("startKeep参数格式错误: " + value + ", 使用默认值0");
                             }
                             break;
                         case "endKeep":
                             try {
-                                params.endKeep = Integer.parseInt(value);
+                                int parsedValue = Integer.parseInt(value);
+                                if (parsedValue >= 0 && parsedValue <= 1000) { // 合理范围限制
+                                    params.endKeep = parsedValue;
+                                } else {
+                                    System.err.println("endKeep参数超出有效范围[0-1000]: " + value);
+                                }
                             } catch (NumberFormatException e) {
-                                // 忽略无效数字
+                                System.err.println("endKeep参数格式错误: " + value + ", 使用默认值0");
                             }
                             break;
                         case "maskChar":
                             if (value.length() == 1) {
                                 params.maskChar = value.charAt(0);
+                            } else {
+                                System.err.println("maskChar参数必须是单个字符: " + value + ", 使用默认值*");
                             }
                             break;
                     }
@@ -460,6 +582,19 @@ public class JsonFieldDesensitizer {
         }
 
         return params;
+    }
+
+    /**
+     * 将字段路径标准化，将所有数组索引替换为通配符
+     * 例如: items[0].phone -> items[*].phone
+     *      user.items[2].contacts[5].email -> user.items[*].contacts[*].email
+     */
+    private String normalizeFieldPath(String fieldPath) {
+        if (!StringUtils.hasText(fieldPath)) {
+            return fieldPath;
+        }
+        // 将所有 [数字] 替换为 [*]
+        return fieldPath.replaceAll("\\[\\d+\\]", "[*]");
     }
 
     /**

@@ -70,15 +70,20 @@ public @interface Desensitize {
      * 字段级脱敏配置
      * 当需要对JSON字符串中的不同字段应用不同的脱敏类型时使用
      * 配置格式：字段路径:脱敏类型[:参数]
-     * 多个配置用逗号分隔
+     * 多个字段配置用分号(;)分隔，参数用逗号(,)分隔
      *
      * 示例：
-     * "user.phone:PHONE,user.idCard:ID_CARD,user.email:EMAIL"
-     * "items[*].price:PHONE,items[*].secret:PASSWORD:startKeep:0,endKeep:0,maskChar:#"
-     * "contactInfo.phone:PHONE:maskChar:#,contactInfo.email:EMAIL"
+     * "user.phone:PHONE;user.idCard:ID_CARD;user.email:EMAIL"
+     * "items[*].phone:PHONE:startKeep:2,endKeep:3;items[*].secret:PASSWORD:startKeep:0,endKeep:0,maskChar:#"
+     * "contactInfo.phone:PHONE:maskChar:#;contactInfo.email:EMAIL"
      *
      * 支持的脱敏类型：USERNAME, ID_CARD, PHONE, EMAIL, BANK_CARD,
      *                   CHINESE_NAME, PASSWORD, ADDRESS, CUSTOM
+     *
+     * 参数说明：
+     * - startKeep: 开始保留字符数
+     * - endKeep: 结尾保留字符数
+     * - maskChar: 脱敏字符
      *
      * @return 字段级脱敏配置
      */
